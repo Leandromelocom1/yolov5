@@ -1,0 +1,5 @@
+train: dataset/images/train
+val: dataset/images/val
+
+nc: 3  # número de classes
+names: ['sem_epi', 'usando_celular', 'jogando_entulho']

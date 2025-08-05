@@ -12,7 +12,7 @@ from pathlib import Path
 from email.message import EmailMessage
 
 import torch
-from ultralytics.utils.plotting import Annotator, colors, save_one_box
+from ultralytics.utils.plotting import Annotator, colors
 from models.common import DetectMultiBackend
 from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
 from utils.general import (
@@ -21,22 +21,25 @@ from utils.general import (
 )
 from utils.torch_utils import select_device, smart_inference_mode
 
-# CONFIGURAÇÃO DO E-MAIL
+# CONFIGURAÇÕES DE E-MAIL
 EMAIL_FROM = "informatica@engemolde.com.br"
-EMAIL_TO = "leandro@engemolde.com.br"
-EMAIL_CC = "leandromelo.com@gmail.com"
 SMTP_SERVER = "email-ssl.com.br"
 EMAIL_USER = EMAIL_FROM
 EMAIL_PASS = "25!0521@EnG3819@#"
 
+# Destinatários específicos
+EMAIL_TO_PADRAO = "leandro@engemolde.com.br"
+EMAIL_CC_PADRAO = "leandromelo.com@gmail.com"
+EMAIL_TO_MARCEL = "marcel@engemolde.com.br"
 
-def enviar_email_com_anexo(imagem_path):
+
+def enviar_email_com_anexo(imagem_path, assunto, destinatario, corpo):
     msg = EmailMessage()
-    msg["Subject"] = "Alerta: Pessoa sem EPI detectada"
+    msg["Subject"] = assunto
     msg["From"] = EMAIL_FROM
-    msg["To"] = EMAIL_TO
-    msg["Cc"] = EMAIL_CC
-    msg.set_content("Uma pessoa sem EPI foi detectada. Veja a imagem em anexo.")
+    msg["To"] = destinatario
+    msg["Cc"] = EMAIL_CC_PADRAO
+    msg.set_content(corpo)
 
     with open(imagem_path, "rb") as img:
         msg.add_attachment(img.read(), maintype="image", subtype="jpeg", filename=os.path.basename(imagem_path))
@@ -45,7 +48,7 @@ def enviar_email_com_anexo(imagem_path):
     with smtplib.SMTP_SSL(SMTP_SERVER, 465, context=context) as server:
         server.login(EMAIL_USER, EMAIL_PASS)
         server.send_message(msg)
-        print(f"📧 E-mail enviado com sucesso: {imagem_path}")
+        print(f"📧 E-mail enviado: {assunto} -> {destinatario}")
 
 
 def write_to_csv(csv_path, image_name, prediction, confidence):
@@ -120,16 +123,22 @@ def run(**kwargs):
                     confidence_str = f"{float(conf):.2f}"
                     write_to_csv(csv_path, p.name, label, confidence_str)
 
-                    if label.lower() == "sem_epi":
-                        crop_dir = save_dir / "detections"
-                        crop_dir.mkdir(parents=True, exist_ok=True)
-                        full_image_path = crop_dir / f"{p.stem}_sem_epi_full.jpg"
-                        cv2.imwrite(str(full_image_path), im0)  # Salva imagem completa
-                        try:
-                            enviar_email_com_anexo(str(full_image_path))
-                        except Exception as e:
-                            print(f"Erro ao enviar e-mail com imagem completa: {e}")
+                    # Ações para cada classe
+                    crop_dir = save_dir / "violations"
+                    crop_dir.mkdir(parents=True, exist_ok=True)
+                    image_file = crop_dir / f"{p.stem}_{label}_full.jpg"
+                    cv2.imwrite(str(image_file), im0)
 
+                    try:
+                        if label.lower() == "sem_epi":
+                            enviar_email_com_anexo(str(image_file), "Alerta: Sem EPI", EMAIL_TO_PADRAO, "Pessoa sem EPI foi detectada.")
+                        elif label.lower() == "usando_celular":
+                            enviar_email_com_anexo(str(image_file), "Alerta: Uso de celular", EMAIL_TO_PADRAO, "Pessoa usando celular em área indevida.")
+                        elif label.lower() == "jogando_entulho":
+                            enviar_email_com_anexo(str(image_file), "Alerta: Jogando entulho", EMAIL_TO_MARCEL, "Pessoa jogando entulho foi detectada.")
+                        # Se for "com_epi", nenhuma ação necessária
+                    except Exception as e:
+                        print(f"Erro ao enviar e-mail para {label}: {e}")
 
                     if save_img:
                         display_label = None if opt.hide_labels else f"{label} {confidence_str}" if not opt.hide_conf else label
@@ -150,7 +159,7 @@ def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument("--weights", nargs="+", type=str, default="yolov5s.pt")
     parser.add_argument("--source", type=str, default="data/images")
-    parser.add_argument("--data", type=str, default="data/coco128.yaml")
+    parser.add_argument("--data", type=str, default="data.yaml")
     parser.add_argument("--imgsz", nargs="+", type=int, default=[640])
     parser.add_argument("--conf-thres", type=float, default=0.25)
     parser.add_argument("--iou-thres", type=float, default=0.45)
